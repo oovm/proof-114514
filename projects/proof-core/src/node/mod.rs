@@ -175,6 +175,7 @@ impl Calculate {
         })
     }
     fn apply(&self, operators: &[Operators]) -> Vec<Rc<TreeState>> {
+        assert_eq!(operators.len(), self.digits.len() - 1);
         let mut stack: Vec<Rc<TreeState>> = vec![];
         let digits = self.rc_digits();
         let rest = match digits.as_slice() {
@@ -184,7 +185,6 @@ impl Calculate {
             }
             _ => unreachable!("digits must > 1"),
         };
-        assert_eq!(operators.len(), self.digits.len() - 1);
         for (digit, operator) in rest.iter().zip(operators.iter()) {
             for node in take(&mut stack) {
                 // binary transform
