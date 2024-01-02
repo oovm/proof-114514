@@ -35,21 +35,21 @@ pub enum Operators {
 }
 
 #[derive(Clone, Debug)]
-struct Cache {
+struct TreeState {
     tree: Tree,
-    value: f64,
+    cache: f64,
 }
 
 #[derive(Clone, Debug)]
 enum Tree {
     Number { value: f64 },
-    Factorial { value: Rc<Cache> },
-    Join { lhs: Rc<Cache>, rhs: Rc<Cache> },
-    Plus { lhs: Rc<Cache>, rhs: Rc<Cache> },
-    Minus { reverse: bool, lhs: Rc<Cache>, rhs: Rc<Cache> },
-    Multiplication { lhs: Rc<Cache>, rhs: Rc<Cache> },
-    Division { lhs: Rc<Cache>, rhs: Rc<Cache> },
-    Power { lhs: Rc<Cache>, rhs: Rc<Cache> },
+    Factorial { value: Rc<TreeState> },
+    Join { lhs: Rc<TreeState>, rhs: Rc<TreeState> },
+    Plus { lhs: Rc<TreeState>, rhs: Rc<TreeState> },
+    Minus { reverse: bool, lhs: Rc<TreeState>, rhs: Rc<TreeState> },
+    Multiplication { lhs: Rc<TreeState>, rhs: Rc<TreeState> },
+    Division { lhs: Rc<TreeState>, rhs: Rc<TreeState> },
+    Power { lhs: Rc<TreeState>, rhs: Rc<TreeState> },
 }
 
 impl Operators {
@@ -58,31 +58,31 @@ impl Operators {
     }
 }
 
-impl Cache {
+impl TreeState {
     fn almost_integer(&self) -> bool {
-        self.value.fract() < 10f64.powf(-10.0)
+        self.cache.fract() < 10f64.powf(-10.0)
     }
     fn is_natural(&self) -> bool {
-        self.value >= 0.0 && self.almost_integer()
+        self.cache >= 0.0 && self.almost_integer()
     }
 }
 
 impl Tree {
-    fn evaluate(&self) -> Option<Rc<Cache>> {
+    fn evaluate(&self) -> Option<Rc<TreeState>> {
         let value = match self {
             Self::Number { value } => *value,
             Self::Factorial { value } => {
                 if !value.almost_integer() {
                     return None;
                 }
-                if value.value == 1.0 || value.value < 0.0 || value.value > 172.0 {
+                if value.cache == 1.0 || value.cache < 0.0 || value.cache > 172.0 {
                     return None;
                 }
-                else if value.value == 0.0 {
+                else if value.cache == 0.0 {
                     1.0
                 }
                 else {
-                    let mut fact = value.value;
+                    let mut fact = value.cache;
                     let mut base = 1.0;
                     while fact > 1.0 {
                         base *= fact;
@@ -93,27 +93,27 @@ impl Tree {
             }
             Self::Join { lhs, rhs } => {
                 if lhs.tree.is_join_child() && rhs.tree.is_join_child() {
-                    if rhs.value == 0.0 {
-                        lhs.value * 10.0 + rhs.value
+                    if rhs.cache == 0.0 {
+                        lhs.cache * 10.0 + rhs.cache
                     }
                     else {
-                        lhs.value * 10f64.powf(rhs.value.log10().ceil()) + rhs.value
+                        lhs.cache * 10f64.powf(rhs.cache.log10().ceil()) + rhs.cache
                     }
                 }
                 else {
                     return None;
                 }
             }
-            Self::Plus { lhs, rhs } => lhs.value.add(rhs.value),
+            Self::Plus { lhs, rhs } => lhs.cache.add(rhs.cache),
             Self::Minus { reverse, lhs, rhs } => match *reverse {
-                true => rhs.value.sub(lhs.value),
-                false => lhs.value.sub(rhs.value),
+                true => rhs.cache.sub(lhs.cache),
+                false => lhs.cache.sub(rhs.cache),
             },
-            Self::Multiplication { lhs, rhs } => lhs.value.mul(rhs.value),
-            Self::Division { lhs, rhs } => lhs.value.div(rhs.value),
-            Self::Power { lhs, rhs } => lhs.value.powf(rhs.value),
+            Self::Multiplication { lhs, rhs } => lhs.cache.mul(rhs.cache),
+            Self::Division { lhs, rhs } => lhs.cache.div(rhs.cache),
+            Self::Power { lhs, rhs } => lhs.cache.powf(rhs.cache),
         };
-        if value.is_normal() { Some(Rc::new(Cache { tree: self.clone(), value })) } else { None }
+        if value.is_normal() { Some(Rc::new(TreeState { tree: self.clone(), cache: value })) } else { None }
     }
     fn is_join_child(&self) -> bool {
         match self {
@@ -126,10 +126,10 @@ impl Tree {
 
 impl Calculate {
     /// Find all expressions that can be formed by inserting operators into digits
-    pub fn expressions_bfs(&self) -> Vec<Rc<Cache>> {
-        let mut stack: Vec<Rc<Cache>> = vec![];
+    pub fn expressions_bfs(&self) -> Vec<Rc<TreeState>> {
+        let mut stack: Vec<Rc<TreeState>> = vec![];
         for i in self.digits.iter().map(|v| *v as f64) {
-            let rhs = Rc::new(Cache { tree: Tree::Number { value: i }, value: i });
+            let rhs = Rc::new(TreeState { tree: Tree::Number { value: i }, cache: i });
             // head digit
             if stack.is_empty() {
                 stack.extend(Tree::Factorial { value: rhs.clone() }.evaluate().into_iter());
@@ -162,7 +162,7 @@ impl Calculate {
         }
         stack
     }
-    pub fn expressions_dfs<'i>(&'i self) -> impl Iterator<Item = Rc<Cache>> + 'i {
+    pub fn expressions_dfs<'i>(&'i self) -> impl Iterator<Item = Rc<TreeState>> + 'i {
         from_coroutine(move || {
             for pattern in Operators::all().iter().copied().permutations(self.digits.len() - 1) {
                 for expression in self.apply(&pattern) {
@@ -174,8 +174,9 @@ impl Calculate {
             }
         })
     }
-    fn apply(&self, operators: &[Operators]) -> Vec<Rc<Cache>> {
-        let mut stack: Vec<Rc<Cache>> = vec![];
+    /// `[1,2,3].apply([Minus,Plus]) => [(1-2)+3, 1-(2+3)]`
+    fn apply(&self, operators: &[Operators]) -> Vec<Rc<TreeState>> {
+        let mut stack: Vec<Rc<TreeState>> = vec![];
         let digits = self.rc_digits();
         let rest = match digits.as_slice() {
             [head, rest @ ..] => {
@@ -187,8 +188,8 @@ impl Calculate {
         assert_eq!(operators.len(), self.digits.len() - 1);
         for (digit, operator) in rest.iter().zip(operators.iter()) {
             for node in take(&mut stack) {
+                // binary transform
                 let tree = match operator {
-                    Operators::Factorial => unreachable!(),
                     Operators::Join => Tree::Join { lhs: node.clone(), rhs: digit.clone() },
                     Operators::Plus => Tree::Plus { lhs: node.clone(), rhs: digit.clone() },
                     Operators::Minus => Tree::Minus { reverse: false, lhs: node.clone(), rhs: digit.clone() },
@@ -196,17 +197,22 @@ impl Calculate {
                     Operators::Multiplication => Tree::Multiplication { lhs: node.clone(), rhs: digit.clone() },
                     Operators::Division => Tree::Division { lhs: node.clone(), rhs: digit.clone() },
                     Operators::Power => Tree::Power { lhs: node.clone(), rhs: digit.clone() },
+                    _ => unreachable!(),
                 };
                 if let Some(out) = tree.evaluate() {
-                    stack.extend(Tree::Factorial { value: out.clone() }.evaluate().into_iter());
+                    // unary transform
+                    match operator {
+                        Operators::Factorial => stack.extend(Tree::Factorial { value: out.clone() }.evaluate().into_iter()),
+                        _ => unreachable!(),
+                    }
                     stack.extend_one(out);
                 }
             }
         }
         stack
     }
-    fn rc_digits(&self) -> Vec<Rc<Cache>> {
-        self.digits.iter().map(|v| Rc::new(Cache { tree: Tree::Number { value: *v as f64 }, value: *v as f64 })).collect()
+    fn rc_digits(&self) -> Vec<Rc<TreeState>> {
+        self.digits.iter().map(|v| Rc::new(TreeState { tree: Tree::Number { value: *v as f64 }, cache: *v as f64 })).collect()
     }
 }
 
@@ -214,7 +220,7 @@ impl Calculate {
 fn find_one() {
     let calculate = Calculate { digits: vec![1, 2, 3, 4, 5, 6, 7, 8, 9] };
     let expressions = calculate.expressions_dfs();
-    for expression in expressions.into_iter().filter(|v| v.value == 100.0).take(1) {
+    for expression in expressions.into_iter().filter(|v| v.cache == 100.0).take(1) {
         println!("{:#?}", expression);
     }
 }
