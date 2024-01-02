@@ -174,7 +174,6 @@ impl Calculate {
             }
         })
     }
-    /// `[1,2,3].apply([Minus,Plus]) => [(1-2)+3, 1-(2+3)]`
     fn apply(&self, operators: &[Operators]) -> Vec<Rc<TreeState>> {
         let mut stack: Vec<Rc<TreeState>> = vec![];
         let digits = self.rc_digits();
